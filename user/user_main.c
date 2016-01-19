@@ -1,13 +1,16 @@
 #include "ets_sys.h"
 #include "osapi.h"
 #include "os_type.h"
+#include "mem.h"
 #include "gpio.h"
 #include "user_interface.h"
+#include "espconn.h"
+#include "dht.h"
+#include "ds18b20.h"
 
 // custom headers
 #include "user_config.h"
 #include "user_gpio.h"
-
 
 
 
@@ -33,8 +36,16 @@ void print_ip(char *desc, uint32 addr)
     os_printf("\n\r");
 }
 
-void some_timerfunc(void *arg)
-{
+struct s_blink {
+  uint8 red;
+  uint8 green;
+  uint8 blue;
+  uint8 spkr;
+};
+
+struct s_blink blink = {1,0,0,0};
+
+void get_wifi_status(void){
   static uint8 last_con_status;
   struct ip_info ipinfo;
   uint8 wifi_status;
@@ -58,6 +69,9 @@ void some_timerfunc(void *arg)
         os_printf("wifi connection failed!\r\n");
         break;
       case STATION_GOT_IP:
+        blink.green = 3;
+        blink.blue = 2;
+
         ipinfo.ip.addr=0;
         ipinfo.netmask.addr=255;
         ipinfo.gw.addr=0;
@@ -66,26 +80,57 @@ void some_timerfunc(void *arg)
         print_ip("IP Address: ", ipinfo.ip.addr);
         print_ip("Netmask   : ", ipinfo.netmask.addr);
         print_ip("Gateway   : ", ipinfo.gw.addr);
+        shell_init();
         break;
     }
   }
   last_con_status = wifi_status;
-    //Do blinky stuff
-    if (GPIO_REG_READ(GPIO_OUT_ADDRESS) & BIT_GREEN)
-    {
-        //Set GPIO2 to LOW
-        //gpio_output_set(0, BIT_RED, BIT_RED, 0);
-        my_gpio_output_set(GPIO_GREEN, 0);
-        my_gpio_output_set(GPIO_RED, 1);
-    }
-    else
-    {
-        //Set GPIO2 to HIGH
-        //gpio_output_set(BIT_RED, 0, BIT_RED, 0);
-        my_gpio_output_set(GPIO_GREEN, 1);
-        my_gpio_output_set(GPIO_RED, 0);
-    }
 }
+
+
+
+void some_timerfunc(void *arg)
+{
+  get_wifi_status();
+
+  struct sensor_reading *temp;
+  temp = readDS18B20();
+  os_printf("\r\nTemperature: %d.%d\r\n",(int)temp->temperature, (int)(temp->temperature - (int)temp->temperature)*100);
+
+  if(blink.red){
+    if(GPIO_INPUT_GET(GPIO_RED)){
+      my_gpio_output_set(GPIO_RED,0);
+      blink.red--;
+    }else{
+      my_gpio_output_set(GPIO_RED,1);
+    }
+  }
+  if(blink.blue){
+    if(GPIO_INPUT_GET(GPIO_BLUE)){
+      my_gpio_output_set(GPIO_BLUE,0);
+      blink.blue--;
+    }else{
+      my_gpio_output_set(GPIO_BLUE,1);
+    }
+  }
+  if(blink.green){
+    if(GPIO_INPUT_GET(GPIO_GREEN)){
+      my_gpio_output_set(GPIO_GREEN,0);
+      blink.green--;
+    }else{
+      my_gpio_output_set(GPIO_GREEN,1);
+    }
+  }
+  if(blink.spkr){
+    if(GPIO_INPUT_GET(GPIO_SPKR)){
+      my_gpio_output_set(GPIO_SPKR,0);
+      blink.spkr--;
+    }else{
+      my_gpio_output_set(GPIO_SPKR,1);
+    }
+  }
+}
+
 
 //Hello world task
 static void ICACHE_FLASH_ATTR
@@ -107,6 +152,7 @@ user_init()
   uart_div_modify(0, UART_CLK_FREQ / 9600);
   // init GPIO
   my_gpio_init();
+  setup_DS1820();
 
   //Set station mode
   wifi_set_opmode( 0x1 );
@@ -116,7 +162,7 @@ user_init()
   os_memcpy(&stationConf.password, password, 64);
   wifi_station_set_config(&stationConf);
 
-  //Set GPIO2 low
+  //Set GPIO low
   my_gpio_output_set(GPIO_WHITE, 0);
   my_gpio_output_set(GPIO_RED, 0);
   my_gpio_output_set(GPIO_GREEN, 0);

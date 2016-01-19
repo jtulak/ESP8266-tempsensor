@@ -27,7 +27,7 @@ for ESP-201 dev board.
 #define GPIO_RELAY 16
 #define BIT_RELAY BIT16
 
-
+void ICACHE_FLASH_ATTR my_gpio_output_set(uint8 gpio, uint8 value);
 
 
 
