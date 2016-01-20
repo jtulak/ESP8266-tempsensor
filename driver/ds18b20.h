@@ -25,8 +25,11 @@
 /*
  * static function prototypes
  */
-int do_ds18b20(int argc, const char* const* argv, char  output[DS_MAX_PROBES][DS_REPLY_LENGTH]);
+int do_ds18b20(int argc, const char* const* argv, unsigned int *count, char  output[DS_MAX_PROBES][DS_REPLY_LENGTH]);
 
-void read_all_temps(char output[DS_MAX_PROBES][DS_REPLY_LENGTH]);
+/*
+ * args: count of found probes, 2d array for measured temperatures as strings
+ */
+int read_all_temps(unsigned int *count, char output[DS_MAX_PROBES][DS_REPLY_LENGTH]);
 
 #endif

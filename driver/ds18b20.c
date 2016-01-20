@@ -49,22 +49,23 @@ static uint8_t reset(void);
 static uint8_t read();
 static uint8_t crc8(const uint8_t *addr, uint8_t len);
 
-void read_all_temps(char output[DS_MAX_PROBES][DS_REPLY_LENGTH]){
+int read_all_temps(unsigned int *count, char output[DS_MAX_PROBES][DS_REPLY_LENGTH]){
   const char * const args[] ={
     "2","2","all"
   };
-  do_ds18b20(3,args, output);
+  return do_ds18b20(3,args, count, output);
 }
 
 /*
  * Parameter: <gpio>
  */
-int do_ds18b20(int argc, const char* const* argv, char output[DS_MAX_PROBES][DS_REPLY_LENGTH])
+int do_ds18b20(int argc, const char* const* argv, unsigned int *count, char output[DS_MAX_PROBES][DS_REPLY_LENGTH])
 {
 	const char *tmp = argv[1];
 	int gpio; // = skip_atoi(&tmp);
 	int r, i;
 	uint8_t addr[8], data[12];
+	*count=0;
 
 	gpio = skip_atoi( &tmp );
 	bool getall = ((argc >= 3) && (strcmp(argv[2], "all") == 0));
@@ -91,7 +92,6 @@ int do_ds18b20(int argc, const char* const* argv, char output[DS_MAX_PROBES][DS_
 
 
 	reset_search();
-	int index=0;
 	do{
 		r = ds_search( addr );
 		if( r )
@@ -159,12 +159,12 @@ int do_ds18b20(int argc, const char* const* argv, char output[DS_MAX_PROBES][DS_
 			os_printf( "%02x%02x%02x%02x%02x%02x%02x%02x %c%d.%02d\r\n",
 				addr[0], addr[1], addr[2], addr[3], addr[4], addr[5], addr[6], addr[7],
 				tSign, tVal, tFract);
-
-			if (index < DS_MAX_PROBES){
-				os_sprintf(output[index], "%02x%02x%02x%02x%02x%02x%02x%02x %c%d.%02d",
+			// put it into the output string
+			if (*count < DS_MAX_PROBES){
+				os_sprintf(output[*count], "%02x%02x%02x%02x%02x%02x%02x%02x %c%d.%02d",
 					addr[0], addr[1], addr[2], addr[3], addr[4], addr[5], addr[6], addr[7],
 					tSign, tVal, tFract);
-				index++;
+				(*count)++;
 			}else{
 				os_printf("Limit for probes is %d, but there is more probes than that!\r\nEdit DS_MAX_PROBES.\r\n", DS_MAX_PROBES);
 			}
