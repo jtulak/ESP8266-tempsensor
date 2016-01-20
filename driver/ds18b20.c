@@ -156,12 +156,12 @@ int do_ds18b20(int argc, const char* const* argv, char output[DS_MAX_PROBES][DS_
 		}
 
 		if(getall){
-			os_printf( "%02x%02x%02x%02x%02x%02x%02x%02x %c%d.%02d\n",
+			os_printf( "%02x%02x%02x%02x%02x%02x%02x%02x %c%d.%02d\r\n",
 				addr[0], addr[1], addr[2], addr[3], addr[4], addr[5], addr[6], addr[7],
 				tSign, tVal, tFract);
 
 			if (index < DS_MAX_PROBES){
-				os_sprintf(output[index], "%02x%02x%02x%02x%02x%02x%02x%02x %c%d.%02d\n",
+				os_sprintf(output[index], "%02x%02x%02x%02x%02x%02x%02x%02x %c%d.%02d",
 					addr[0], addr[1], addr[2], addr[3], addr[4], addr[5], addr[6], addr[7],
 					tSign, tVal, tFract);
 				index++;
