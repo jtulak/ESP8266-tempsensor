@@ -1,3 +1,7 @@
+/*
+  Source: https://github.com/nekromant/esp8266-frankenstein
+  Author doesn't state license, and multiple parts of the code are under various license.
+ */
 #ifndef __I2C_DS18B20_H
 #define	__I2C_DS18B20_H
 
@@ -18,7 +22,7 @@
 #define DS18B20 	0x28
 
 // length of the string reply
-#define DS_REPLY_LENGTH 23
+#define DS_REPLY_LENGTH 30
 // maximum number of simultanous probes
 #define DS_MAX_PROBES 5
 

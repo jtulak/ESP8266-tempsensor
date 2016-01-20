@@ -1,4 +1,8 @@
-// by 0ff - http://www.esp8266.com/viewtopic.php?f=9&t=523#p2409
+/*
+ Basic TCP framework: 0ff - http://www.esp8266.com/viewtopic.php?f=9&t=523#p2409
+ License uncertain, but from context, Public Domain is most likely.
+ HTTP and application parts added by Jan Tulak.
+*/
 #ifndef __TCP_H__
 #define __TCP_H__
 

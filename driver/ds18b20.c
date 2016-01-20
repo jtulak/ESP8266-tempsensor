@@ -8,6 +8,12 @@
  * See also http://playground.arduino.cc/Learning/OneWire
  *
  */
+/*
+ Source: https://github.com/nekromant/esp8266-frankenstein
+ Author doesn't state license, and multiple parts of the code are under various license.
+
+ Jan Tulak changed it to save the measured values into a string instead of printing.
+*/
 #include "ets_sys.h"
 #include "os_type.h"
 #include "mem.h"

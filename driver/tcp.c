@@ -1,4 +1,8 @@
-// by 0ff - http://www.esp8266.com/viewtopic.php?f=9&t=523#p2409
+/*
+ Basic TCP framework: 0ff - http://www.esp8266.com/viewtopic.php?f=9&t=523#p2409
+ License uncertain, but from context, Public Domain is most likely.
+ HTTP and application parts added by Jan Tulak.
+*/
 #include "ets_sys.h"
 #include "osapi.h"
 #include "os_type.h"
@@ -55,6 +59,24 @@ uint8 parse_header(char*msg){
   return GET_NOT_HTTP;
 }
 
+char * get_temperatures_string(){
+  unsigned int probes_cnt;
+  char temps[DS_MAX_PROBES][DS_REPLY_LENGTH];
+  os_memset(temps, 0, DS_MAX_PROBES*DS_REPLY_LENGTH);
+
+  // get temperature
+  read_all_temps(&probes_cnt, temps);
+  // prepare the reply
+  char * output = (char*)os_malloc(sizeof(char)*probes_cnt*DS_REPLY_LENGTH);
+  os_memset(output, 0, probes_cnt*DS_REPLY_LENGTH);
+  int i;
+  // for every probe, join the strings
+  for (i=0; i<probes_cnt; i++){
+    os_sprintf(output,"%s%s\n",output,temps[i]);
+  }
+  return output;
+}
+
 /*
  Take care of HTTP messages.
  Just 4 options - either the client wants /, /relay-on, /relay-off, or 404 errr.
@@ -82,24 +104,15 @@ void http_message(struct espconn *pespconn, void *arg, char *pusrdata, unsigned 
     os_printf("set relay off\r\n");
 
   }else if (req == GET_INDEX){
-    unsigned int probes_cnt;
-    char temps[DS_MAX_PROBES][DS_REPLY_LENGTH];
     os_printf("get index\r\n");
-    os_memset(temps, 0, DS_MAX_PROBES*DS_REPLY_LENGTH);
-
-    // get temperature
-    read_all_temps(&probes_cnt, temps);
-    // prepare the reply
-    char output[probes_cnt*DS_REPLY_LENGTH];
-    os_memset(output, 0, probes_cnt*DS_REPLY_LENGTH);
-    int i;
-    // for every probe, join the strings
-    for (i=0; i<probes_cnt; i++){
-      os_sprintf(output,"%s\n%s",output,temps[i]);
-    }
+    char * output = get_temperatures_string();
+    // alloc memory for output message - headers, temperatures and few more bytes for linebreaks
+    char * full_output = (char*) os_malloc(sizeof(char)*(os_strlen(output)+os_strlen(HEADERS)+10));
+    os_sprintf(full_output, "%s\n\n%s\n",HEADERS, output);
     // send the reply
-    os_sprintf(pusrdata, "%s\n\n%s\n",HEADERS, output);
-    espconn_sent(pespconn, (uint8*)pusrdata, os_strlen(pusrdata));
+    espconn_sent(pespconn, (uint8*)full_output, os_strlen(full_output));
+    os_free(output);
+    os_free(full_output);
   }
 
   espconn_disconnect(pespconn);
@@ -115,14 +128,10 @@ void telnet_message(struct espconn *pespconn, void *arg, char *pusrdata, unsigne
     my_gpio_output_set(GPIO_RELAY, 0);
     os_printf("set relay off");
   }else if(os_strcmp(pusrdata, "temperature\r\n")==0){
-    char temps[5][DS_REPLY_LENGTH];
-    unsigned int count;
-    read_all_temps(&count, temps);
-    int i;
-    for (i=0; i<count; i++){
-      espconn_sent(pespconn, (uint8*)temps[i], os_strlen(temps[i]));
-      espconn_sent(pespconn, (uint8*)"\r\n", os_strlen("\r\n"));
-    }
+    char * output = get_temperatures_string();
+    // send the reply
+    espconn_sent(pespconn, (uint8*)output, os_strlen(output));
+    os_free(output);
   }
 
   os_printf(">'%s' ", pusrdata);
