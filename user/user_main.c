@@ -5,14 +5,20 @@
 #include "gpio.h"
 #include "user_interface.h"
 #include "espconn.h"
-#include "dht.h"
 #include "ds18b20.h"
+#include "tcp.h"
 
 // custom headers
 #include "user_config.h"
 #include "user_gpio.h"
 
 
+void read_temps(){
+  const char * const args[] ={
+    "2","2","all"
+  };
+  do_ds18b20(3,args);
+}
 
 #define user_procTaskPrio        0
 #define user_procTaskQueueLen    1
@@ -93,9 +99,7 @@ void some_timerfunc(void *arg)
 {
   get_wifi_status();
 
-  struct sensor_reading *temp;
-  temp = readDS18B20();
-  os_printf("\r\nTemperature: %d.%d\r\n",(int)temp->temperature, (int)(temp->temperature - (int)temp->temperature)*100);
+  read_temps();
 
   if(blink.red){
     if(GPIO_INPUT_GET(GPIO_RED)){
@@ -152,7 +156,6 @@ user_init()
   uart_div_modify(0, UART_CLK_FREQ / 9600);
   // init GPIO
   my_gpio_init();
-  setup_DS1820();
 
   //Set station mode
   wifi_set_opmode( 0x1 );

@@ -1,33 +1,26 @@
+#ifndef __I2C_DS18B20_H
+#define	__I2C_DS18B20_H
+
+#define DS1820_WRITE_SCRATCHPAD	0x4E
+#define DS1820_READ_SCRATCHPAD	0xBE
+#define DS1820_COPY_SCRATCHPAD	0x48
+#define DS1820_READ_EEPROM		0xB8
+#define DS1820_READ_PWRSUPPLY	0xB4
+#define DS1820_SEARCHROM		0xF0
+#define DS1820_SKIP_ROM			0xCC
+#define DS1820_READROM			0x33
+#define DS1820_MATCHROM			0x55
+#define DS1820_ALARMSEARCH		0xEC
+#define DS1820_CONVERT_T		0x44
+
+// DS18x20 family codes
+#define DS18S20		0x10
+#define DS18B20 	0x28
+
+
 /*
- StellarisDS18B20.h - Yes I know it's a long name.
-This library works with both 430 and Stellaris using the Energia IDE.
- Not sure who the original author is, as I've seen the core code used in a few different One Wire lib's.
- Am sure it came from Arduino folks.
- There are no processor hardware dependant calls.
- Had troubles with delayMicrosecond() exiting early when the library used by Stellaris.
- So replaced them with a micros() while loop. The timing loop was tuned to suit the Stellaris
- It was disconcerting that a difference of 1 micro second would make the routines intermittingly fail.
- Anyway after nearly two weeks think I have solved all the delay problems.
-
- History:
- 29/Jan/13 - Finished porting MSP430 to Stellaris
- Grant.forest@live.com.au
------------------------------------------------------------
-
- This library is free software; you can redistribute it and/or
- modify it under the terms of the GNU Lesser General Public
- License as published by the Free Software Foundation; either
- version 2.1 of the License, or (at your option) any later version.
-
- This library is distributed in the hope that it will be useful,
- but WITHOUT ANY WARRANTY; without even the implied warranty of
- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- Lesser General Public License for more details.
-
- You should have received a copy of the GNU Lesser General Public
- License along with this library; if not, write to the Free Software
- Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+ * static function prototypes
  */
+int do_ds18b20(int argc, const char* const* argv);
 
-struct sensor_reading* readDS18B20(void);
-void setup_DS1820(void);
+#endif

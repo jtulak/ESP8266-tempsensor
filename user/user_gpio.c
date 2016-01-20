@@ -3,6 +3,7 @@
 #include "os_type.h"
 #include "gpio.h"
 #include "gpio16.h"
+#include "ds18b20.h"
 #include "user_config.h"
 #include "user_gpio.h"
 

@@ -1,411 +1,497 @@
 /*
- StellarisDS18B20.h - Yes I know it's a long name.
-This library works with both 430 and Stellaris using the Energia IDE.
- Not sure who the original author is, as I've seen the core code used in a few different One Wire lib's.
- Am sure it came from Arduino folks.
- There are no processor hardware dependant calls.
- Had troubles with delayMicrosecond() exiting early when the library used by Stellaris.
- So replaced them with a micros() while loop. The timing loop was tuned to suit the Stellaris
- It was disconcerting that a difference of 1 micro second would make the routines intermittingly fail.
- Anyway after nearly two weeks think I have solved all the delay problems.
-
- History:
- 29/Jan/13 - Finished porting MSP430 to Stellaris
- Grant.forest@live.com.au
------------------------------------------------------------
-
- This library is free software; you can redistribute it and/or
- modify it under the terms of the GNU Lesser General Public
- License as published by the Free Software Foundation; either
- version 2.1 of the License, or (at your option) any later version.
-
- This library is distributed in the hope that it will be useful,
- but WITHOUT ANY WARRANTY; without even the implied warranty of
- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- Lesser General Public License for more details.
-
- You should have received a copy of the GNU Lesser General Public
- License along with this library; if not, write to the Free Software
- Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
+ * Adaptation of Paul Stoffregen's One wire library to the ESP8266 and
+ * Necromant's Frankenstein firmware by Erland Lewin <erland@lewin.nu>
+ *
+ * Paul's original library site:
+ *   http://www.pjrc.com/teensy/td_libs_OneWire.html
+ *
+ * See also http://playground.arduino.cc/Learning/OneWire
+ *
  */
 #include "ets_sys.h"
-#include "osapi.h"
-#include "espmissingincludes.h"
-#include "c_types.h"
-#include "user_interface.h"
-#include "espconn.h"
+#include "os_type.h"
 #include "mem.h"
+#include "osapi.h"
+#include "user_interface.h"
+
+#include "espconn.h"
 #include "gpio.h"
-#include "dht.h"
+#include "uart.h"
+//#include "microrl.h"
+//#include "console.h"
 
 #include "ds18b20.h"
+#include "pin_map.h"
 
-// list of commands DS18B20:
+#include "user_gpio.h"
 
-#define DS1820_WRITE_SCRATCHPAD 	0x4E
-#define DS1820_READ_SCRATCHPAD      0xBE
-#define DS1820_COPY_SCRATCHPAD 		0x48
-#define DS1820_READ_EEPROM 			0xB8
-#define DS1820_READ_PWRSUPPLY 		0xB4
-#define DS1820_SEARCHROM 			0xF0
-#define DS1820_SKIP_ROM             0xCC
-#define DS1820_READROM 				0x33
-#define DS1820_MATCHROM 			0x55
-#define DS1820_ALARMSEARCH 			0xEC
-#define DS1820_CONVERT_T            0x44
+#include "stdlib.h"
+//#include <generic/macros.h>
 
-#define DS1820_PIN 2
+#ifdef CONFIG_CMD_DS18B20_DEBUG
+#define dbg(fmt, ...) LOG(LOG_DEBUG, fmt, ##__VA_ARGS__)
+#else
+#define dbg(fmt, ...)
+#endif
 
-static struct sensor_reading reading = {
-    .source = "DS18B20", .humidity=-1, .success = 0
-};
-
-
-/***
- * CRC Table and code from Maxim AN 162:
- *  http://www.maximintegrated.com/en/app-notes/index.mvp/id/162
-*/
-unsigned const char dscrc_table[] = {
-0, 94,188,226, 97, 63,221,131,194,156,126, 32,163,253, 31, 65,
-157,195, 33,127,252,162, 64, 30, 95, 1,227,189, 62, 96,130,220,
-35,125,159,193, 66, 28,254,160,225,191, 93, 3,128,222, 60, 98,
-190,224, 2, 92,223,129, 99, 61,124, 34,192,158, 29, 67,161,255,
-70, 24,250,164, 39,121,155,197,132,218, 56,102,229,187, 89, 7,
-219,133,103, 57,186,228, 6, 88, 25, 71,165,251,120, 38,196,154,
-101, 59,217,135, 4, 90,184,230,167,249, 27, 69,198,152,122, 36,
-248,166, 68, 26,153,199, 37,123, 58,100,134,216, 91, 5,231,185,
-140,210, 48,110,237,179, 81, 15, 78, 16,242,172, 47,113,147,205,
-17, 79,173,243,112, 46,204,146,211,141,111, 49,178,236, 14, 80,
-175,241, 19, 77,206,144,114, 44,109, 51,209,143, 12, 82,176,238,
-50,108,142,208, 83, 13,239,177,240,174, 76, 18,145,207, 45,115,
-202,148,118, 40,171,245, 23, 73, 8, 86,180,234,105, 55,213,139,
-87, 9,235,181, 54,104,138,212,149,203, 41,119,244,170, 72, 22,
-233,183, 85, 11,136,214, 52,106, 43,117,151,201, 74, 20,246,168,
-116, 42,200,150, 21, 75,169,247,182,232, 10, 84,215,137,107, 53};
-
-unsigned char dowcrc = 0;
-
-unsigned char ow_crc( unsigned char x){
-    dowcrc = dscrc_table[dowcrc^x];
-    return dowcrc;
-}
-
-//End of Maxim AN162 code
-
-unsigned char ROM_NO[8];
-uint8_t LastDiscrepancy;
-uint8_t LastFamilyDiscrepancy;
-uint8_t LastDeviceFlag;
+/*
+ * static function prototypes
+ */
+static int ds_search( uint8_t *addr );
+static void reset_search();
+static void write_bit( int v );
+static void write( uint8_t v, int parasitePower );
+static inline int read_bit(void);
+static inline void write_bit( int v );
+static void select(const uint8_t rom[8]);
+void ds_init( int gpio );
+static uint8_t reset(void);
+static uint8_t read();
+static uint8_t crc8(const uint8_t *addr, uint8_t len);
 
 
-void setup_DS1820(void){
-    PIN_FUNC_SELECT(PERIPHS_IO_MUX_GPIO0_U, FUNC_GPIO0);
-    PIN_FUNC_SELECT(PERIPHS_IO_MUX_GPIO2_U, FUNC_GPIO2);
-
-    readDS18B20();
-
-}
-
-void write_bit(int bit)
+/*
+ * Parameter: <gpio>
+ */
+int do_ds18b20(int argc, const char* const* argv)
 {
-  os_delay_us(1);
-  //Let bus get pulled high
-  GPIO_DIS_OUTPUT(DS1820_PIN);
+	const char *tmp = argv[1];
+	int gpio; // = skip_atoi(&tmp);
+	int r, i;
+	uint8_t addr[8], data[12];
 
+	gpio = skip_atoi( &tmp );
+	bool getall = ((argc >= 3) && (strcmp(argv[2], "all") == 0));
 
-  if (bit) {
-      //5us low pulse
-      GPIO_OUTPUT_SET(DS1820_PIN,0);
-      os_delay_us(5);
-      //let bus go high again (device should read about 30us later)
-      GPIO_DIS_OUTPUT(DS1820_PIN);		  // was OW_RLS	// input
-      os_delay_us(55);
-  }else{
-      //55us low
-      GPIO_OUTPUT_SET(DS1820_PIN,0);
-      os_delay_us(55);
-      //5us high
-      GPIO_DIS_OUTPUT(DS1820_PIN);		  // was OW_RLS	// input
-      os_delay_us(5);
-  }
- }
+	// We will need to use microsecond timer
+	// wait 500 us
+	// system_timer_reinit();
 
-//#####################################################################
+	if(!is_valid_gpio_pin(gpio)){
+		os_printf( "Invalid GPIO pin number.\n" );
+		return false;
+	}
 
-int read_bit()
-{
-  int bit=0;
-  os_delay_us(1);
-  //Pull bus low for 15us
-  GPIO_OUTPUT_SET(DS1820_PIN,0);
-  os_delay_us(15);
+	ds_init( gpio );
+	dbg( "After init.\n" );
 
-  //Allow device to control bu
-  GPIO_DIS_OUTPUT(DS1820_PIN);
-  os_delay_us(5);
+	reset();
+	write( DS1820_SKIP_ROM, 1 );
+	write( DS1820_CONVERT_T, 1 );
 
-  //Read value
-  if (GPIO_INPUT_GET(DS1820_PIN)){		 //was if (OW_IN)
-    bit = 1;
-  }
-  //Wait for end of bit
-  os_delay_us(40);
-  return bit;
+	//750ms 1x, 375ms 0.5x, 188ms 0.25x, 94ms 0.12x
+	os_delay_us( 750*1000 );
+	//wdt_feed();
+	
+
+	reset_search();
+	do{
+		r = ds_search( addr );
+		if( r )
+		{
+			dbg( "Found Device @ %02x %02x %02x %02x %02x %02x %02x %02x\n",
+					addr[0], addr[1], addr[2], addr[3], addr[4], addr[5], addr[6], addr[7] );
+			if( crc8( addr, 7 ) != addr[7] )
+				os_printf( "CRC mismatch, crc=%xd, addr[7]=%xd\n", crc8( addr, 7 ), addr[7] );
+
+			switch( addr[0] )
+			{
+				case DS18S20:
+					dbg( "Device is DS18S20 family.\n" );
+					break;
+
+				case DS18B20:
+					dbg( "Device is DS18B20 family.\n" );
+					break;
+
+				default:
+					os_printf( "Device is unknown family.\n" );
+					return 1;
+			}
+		}
+		else {
+			if(!getall){
+				os_printf( "No DS18x20 detected, sorry\n" );
+				return 1;
+			} else break;
+		}
+
+		dbg( "Scratchpad: " );
+		reset();
+		select( addr );
+		write( DS1820_READ_SCRATCHPAD, 0 );
+
+		for( i = 0; i < 9; i++ )
+		{
+			data[i] = read();
+			dbg( "%2x ", data[i] );
+		}
+		dbg( "\n" );
+
+		// float arithmetic isn't really necessary, tVal and tFract are in 1/10 °C
+		uint16_t tVal, tFract;
+		char tSign;
+
+		tVal = (data[1] << 8) | data[0];
+		if (tVal & 0x8000) {
+			tVal = (tVal ^ 0xffff) + 1;				// 2's complement
+			tSign = '-';
+		} else
+			tSign = '+';
+
+		// datasize differs between DS18S20 and DS18B20 - 9bit vs 12bit
+		if (addr[0] == DS18S20) {
+			tFract = (tVal & 0x01) ? 50 : 0;		// 1bit Fract for DS18S20
+			tVal >>= 1;
+		} else {
+			tFract = (tVal & 0x0f) * 100 / 16;		// 4bit Fract for DS18B20
+			tVal >>= 4;
+		}
+
+		if(getall){
+			os_printf( "%02x%02x%02x%02x%02x%02x%02x%02x %c%d.%02d\n",
+				addr[0], addr[1], addr[2], addr[3], addr[4], addr[5], addr[6], addr[7],
+				tSign, tVal, tFract);
+		}else{
+			os_printf( "Temperature: %c%d.%02d °C\n",
+				tSign, tVal, tFract);
+			return r;
+		}
+
+	} while(getall);
+
+	return r;
 }
 
-//#####################################################################
+// global search state
+static unsigned char ROM_NO[8];
+static uint8_t LastDiscrepancy;
+static uint8_t LastFamilyDiscrepancy;
+static uint8_t LastDeviceFlag;
+static int gpioPin;
 
-void write_byte(uint8_t byte)
+void ds_init( int gpio )
 {
-  int i;
-  for(i = 0; i < 8; i++)
-  {
-    write_bit(byte & 1);
-    byte >>= 1;
-  }
+	//set gpio2 as gpio pin
+	PIN_FUNC_SELECT(pin_mux[gpio], pin_func[gpio]);
+
+
+	//enable pull up R
+	PIN_PULLUP_EN(pin_mux[gpio]);
+
+	// Configure the GPIO with internal pull-up
+	// PIN_PULLUP_EN( gpio );
+
+	GPIO_DIS_OUTPUT( gpio );
+
+	gpioPin = gpio;
 }
 
-//#####################################################################
-
-uint8_t read_byte()
+static void reset_search()
 {
-  unsigned int i;
-  uint8_t byte = 0;
-  for(i = 0; i < 8; i++)
-  {
-    byte >>= 1;
-    if (read_bit()) byte |= 0x80;
-  }
-  return byte;
-}
-
-int reset(void)
-{
-    //Hold the bus low for 500us
-    GPIO_OUTPUT_SET(DS1820_PIN,0); //was OW_LO
-    os_delay_us(500);
-
-    //Give up control of the bus and wait for a device to reply
-    GPIO_DIS_OUTPUT(DS1820_PIN); //set to input
-    os_delay_us(80);
-
-    //The bus should be low if the device is present:
-    if (GPIO_INPUT_GET(DS1820_PIN)){
-        //No device
-	return 1;
-    }
-
-    //The device should have stopped pulling the bus now:
-    os_delay_us(300);
-    if (! GPIO_INPUT_GET(DS1820_PIN)) {
-        //Something's wrong, the bus should be high
-        return 2;
-    }
-
-    //All good.
-    return 0;
-}
-
-struct sensor_reading* readDS18B20(void)
-{
-
-    reset();
-    write_byte(DS1820_SKIP_ROM);  // skip ROM command
-    write_byte(DS1820_CONVERT_T); // convert T command
-
-    os_delay_us(750);
-    reset();
-    write_byte(DS1820_SKIP_ROM);		// skip ROM command
-    write_byte(DS1820_READ_SCRATCHPAD); // read scratchpad command
-
-    uint8_t get[10];
-		int k;
-    for (k=0;k<9;k++){
-        get[k]=read_byte();
-    }
-    //os_printf("\n ScratchPAD DATA = %X %X %X %X %X %X %X %X %X\n",get[8],get[7],get[6],get[5],get[4],get[3],get[2],get[1],get[0]);
-
-    dowcrc = 0;
-		int i;
-    for(i = 0; i < 8; i++){
-        ow_crc(get[i]);
-    }
-
-    if(get[8] != dowcrc){
-        os_printf("CRC check failed: %02X %02X", get[8], dowcrc);
-        reading.success = 0;
-        return &reading;
-    }
-    uint8_t temp_msb = get[1]; // Sign byte + lsbit
-    uint8_t temp_lsb = get[0]; // Temp data plus lsb
-
-
-
-    uint16_t temp = temp_msb << 8 | temp_lsb;
-
-    reading.success = 1;
-    reading.temperature = (temp * 625.0)/10000;
-
-    os_printf("Got a DS18B20 Reading: %d.%d" ,
-    (int)reading.temperature,
-    (int)(reading.temperature - (int)reading.temperature) * 100
-    );
-
-    return &reading;
-
-}
-
-
-
-void reset_search()
-  {
-  // reset the search state
-  LastDiscrepancy = 0;
-  LastDeviceFlag = FALSE;
-  LastFamilyDiscrepancy = 0;
+	// reset the search state
+	LastDiscrepancy = 0;
+	LastDeviceFlag = FALSE;
+	LastFamilyDiscrepancy = 0;
 	int i;
-  for(i = 7; ; i--)
-    {
-    ROM_NO[i] = 0;
-    if ( i == 0) break;
-    }
-  }
+	for(i = 7; ; i--) {
+		ROM_NO[i] = 0;
+		if ( i == 0) break;
+	}
+}
 
+// Perform the onewire reset function.  We will wait up to 250uS for
+// the bus to come high, if it doesn't then it is broken or shorted
+// and we return a 0;
 //
-// Perform a search. If this function returns a '1' then it has
-// enumerated the next device and you may retrieve the ROM from the
-// OneWire::address variable. If there are no devices, no further
-// devices, or something horrible happens in the middle of the
-// enumeration then a 0 is returned.  If a new device is found then
-// its address is copied to newAddr.  Use OneWire::reset_search() to
-// start over.
+// Returns 1 if a device asserted a presence pulse, 0 otherwise.
 //
-// --- Replaced by the one from the Dallas Semiconductor web site ---
-//--------------------------------------------------------------------------
-// Perform the 1-Wire Search Algorithm on the 1-Wire bus using the existing
-// search state.
-// Return TRUE  : device found, ROM number in ROM_NO buffer
-//        FALSE : device not found, end of search
-//
-uint8_t search(uint8_t *newAddr)
+static uint8_t reset(void)
 {
-   uint8_t id_bit_number;
-   uint8_t last_zero, rom_byte_number, search_result;
-   uint8_t id_bit, cmp_id_bit;
-   uint8_t ii=0;
-   unsigned char ROM_NO[8];
-   unsigned char rom_byte_mask, search_direction;
+	//	IO_REG_TYPE mask = bitmask;
+	//	volatile IO_REG_TYPE *reg IO_REG_ASM = baseReg;
+	int r;
+	uint8_t retries = 125;
 
-   // initialize for search
-   id_bit_number = 1;
-   last_zero = 0;
-   rom_byte_number = 0;
-   rom_byte_mask = 1;
-   search_result = 0;
+	// noInterrupts();
+	// DIRECT_MODE_INPUT(reg, mask);
+	GPIO_DIS_OUTPUT( gpioPin );
 
-   // if the last call was not the last one
-   if (!LastDeviceFlag)
-   {
-      // 1-Wire reset
-      ii=reset();
-	  if (ii) // ii>0
-      {
-         // reset the search
-         LastDiscrepancy = 0;
-         LastDeviceFlag = FALSE;
-         LastFamilyDiscrepancy = 0;
-         return ii;	// Pass back the reset error status  gf***
-      }
-      // issue the search command
+	// interrupts();
+	// wait until the wire is high... just in case
+	do {
+		if (--retries == 0) return 0;
+		os_delay_us(2);
+	} while ( !GPIO_INPUT_GET( gpioPin ));
 
-      write_byte(DS1820_SEARCHROM);
+	// noInterrupts();
+	GPIO_OUTPUT_SET( gpioPin, 0 );
+	// DIRECT_WRITE_LOW(reg, mask);
+	// DIRECT_MODE_OUTPUT(reg, mask);	// drive output low
+	// interrupts();
+	os_delay_us(480);
+	// noInterrupts();
+	GPIO_DIS_OUTPUT( gpioPin );
+	// DIRECT_MODE_INPUT(reg, mask);	// allow it to float
+	os_delay_us(70);
+	// r = !DIRECT_READ(reg, mask);
+	r = !GPIO_INPUT_GET( gpioPin );
+	// interrupts();
+	os_delay_us(410);
 
-      // loop to do the search
-      do
-      {
-         // read a bit and its complement
-         id_bit = read_bit();
-         cmp_id_bit = read_bit();
+	return r;
+}
 
-         // check for no devices on 1-wire
-         if ((id_bit == 1) && (cmp_id_bit == 1))
-            break;
-         else
-         {
-            // all devices coupled have 0 or 1
-            if (id_bit != cmp_id_bit)
-               search_direction = id_bit;  // bit write value for search
-            else
-            {
-               // if this discrepancy if before the Last Discrepancy
-               // on a previous next then pick the same as last time
-               if (id_bit_number < LastDiscrepancy)
-                  search_direction = ((ROM_NO[rom_byte_number] & rom_byte_mask) > 0);
-               else
-                  // if equal to last pick 1, if not then pick 0
-                  search_direction = (id_bit_number == LastDiscrepancy);
+/* pass array of 8 bytes in */
+static int ds_search( uint8_t *newAddr )
+{
+	uint8_t id_bit_number;
+	uint8_t last_zero, rom_byte_number;
+	uint8_t id_bit, cmp_id_bit;
+	int search_result;
 
-               // if 0 was picked then record its position in LastZero
-               if (search_direction == 0)
-               {
-                  last_zero = id_bit_number;
+	unsigned char rom_byte_mask, search_direction;
 
-                  // check for Last discrepancy in family
-                  if (last_zero < 9)
-                     LastFamilyDiscrepancy = last_zero;
-               }
-            }
+	// initialize for search
+	id_bit_number = 1;
+	last_zero = 0;
+	rom_byte_number = 0;
+	rom_byte_mask = 1;
+	search_result = 0;
 
-            // set or clear the bit in the ROM byte rom_byte_number
-            // with mask rom_byte_mask
-            if (search_direction == 1)
-              ROM_NO[rom_byte_number] |= rom_byte_mask;
-            else
-              ROM_NO[rom_byte_number] &= ~rom_byte_mask;
+	// if the last call was not the last one
+	if (!LastDeviceFlag)
+	{
+		// 1-Wire reset
+		if (!reset())
+		{
+			// reset the search
+			LastDiscrepancy = 0;
+			LastDeviceFlag = FALSE;
+			LastFamilyDiscrepancy = 0;
+			return FALSE;
+		}
 
-            // serial number search direction write bit
-            write_bit(search_direction);
+		// issue the search command
+		write(DS1820_SEARCHROM, 0);
 
-            // increment the byte counter id_bit_number
-            // and shift the mask rom_byte_mask
-            id_bit_number++;
-            rom_byte_mask <<= 1;
+		// loop to do the search
+		do
+		{
+			// read a bit and its complement
+			id_bit = read_bit();
+			cmp_id_bit = read_bit();
 
-            // if the mask is 0 then go to new SerialNum byte rom_byte_number and reset mask
-            if (rom_byte_mask == 0)
-            {
-                rom_byte_number++;
-                rom_byte_mask = 1;
-            }
-         }
-      }
-      while(rom_byte_number < 8);  // loop until through all ROM bytes 0-7
+			// check for no devices on 1-wire
+			if ((id_bit == 1) && (cmp_id_bit == 1))
+				break;
+			else
+			{
+				// all devices coupled have 0 or 1
+				if (id_bit != cmp_id_bit)
+					search_direction = id_bit;  // bit write value for search
+				else
+				{
+					// if this discrepancy if before the Last Discrepancy
+					// on a previous next then pick the same as last time
+					if (id_bit_number < LastDiscrepancy)
+						search_direction = ((ROM_NO[rom_byte_number] & rom_byte_mask) > 0);
+					else
+						// if equal to last pick 1, if not then pick 0
+						search_direction = (id_bit_number == LastDiscrepancy);
 
-      // if the search was successful then
-      if (!(id_bit_number < 65))
-      {
-         // search successful so set LastDiscrepancy,LastDeviceFlag,search_result
-         LastDiscrepancy = last_zero;
+					// if 0 was picked then record its position in LastZero
+					if (search_direction == 0)
+					{
+						last_zero = id_bit_number;
 
-         // check for last device
-         if (LastDiscrepancy == 0)
-            LastDeviceFlag = TRUE;
+						// check for Last discrepancy in family
+						if (last_zero < 9)
+							LastFamilyDiscrepancy = last_zero;
+					}
+				}
 
-         search_result = TRUE;	// All OK status GF***
-      }
-   }
+				// set or clear the bit in the ROM byte rom_byte_number
+				// with mask rom_byte_mask
+				if (search_direction == 1)
+					ROM_NO[rom_byte_number] |= rom_byte_mask;
+				else
+					ROM_NO[rom_byte_number] &= ~rom_byte_mask;
 
-   // if no device found then reset counters so next 'search' will be like a first
-   //if (search_result || !ROM_NO[0])
-   //if (!ROM_NO[0])
-   if (!search_result || !ROM_NO[0])
-   {
-      LastDiscrepancy = 0;
-      LastDeviceFlag = FALSE;
-      LastFamilyDiscrepancy = 0;
-      search_result = FALSE;
-   }
-	 int i;
-   for (i = 0; i < 8; i++) newAddr[i] = ROM_NO[i];
-   return search_result;
-  }
+				// serial number search direction write bit
+				write_bit(search_direction);
+
+				// increment the byte counter id_bit_number
+				// and shift the mask rom_byte_mask
+				id_bit_number++;
+				rom_byte_mask <<= 1;
+
+				// if the mask is 0 then go to new SerialNum byte rom_byte_number and reset mask
+				if (rom_byte_mask == 0)
+				{
+					rom_byte_number++;
+					rom_byte_mask = 1;
+				}
+			}
+		}
+		while(rom_byte_number < 8);  // loop until through all ROM bytes 0-7
+
+		// if the search was successful then
+		if (!(id_bit_number < 65))
+		{
+			// search successful so set LastDiscrepancy,LastDeviceFlag,search_result
+			LastDiscrepancy = last_zero;
+
+			// check for last device
+			if (LastDiscrepancy == 0)
+				LastDeviceFlag = TRUE;
+
+			search_result = TRUE;
+		}
+	}
+
+	// if no device found then reset counters so next 'search' will be like a first
+	if (!search_result || !ROM_NO[0])
+	{
+		LastDiscrepancy = 0;
+		LastDeviceFlag = FALSE;
+		LastFamilyDiscrepancy = 0;
+		search_result = FALSE;
+	}
+	int i;
+	for (i = 0; i < 8; i++) newAddr[i] = ROM_NO[i];
+	return search_result;
+}
+
+//
+// Write a byte. The writing code uses the active drivers to raise the
+// pin high, if you need power after the write (e.g. DS18S20 in
+// parasite power mode) then set 'power' to 1, otherwise the pin will
+// go tri-state at the end of the write to avoid heating in a short or
+// other mishap.
+//
+static void write( uint8_t v, int power ) {
+	uint8_t bitMask;
+
+	for (bitMask = 0x01; bitMask; bitMask <<= 1) {
+		write_bit( (bitMask & v)?1:0);
+	}
+	if ( !power) {
+		// noInterrupts();
+		GPIO_DIS_OUTPUT( gpioPin );
+		GPIO_OUTPUT_SET( gpioPin, 0 );
+		// DIRECT_MODE_INPUT(baseReg, bitmask);
+		// DIRECT_WRITE_LOW(baseReg, bitmask);
+		// interrupts();
+	}
+}
+
+//
+// Write a bit. Port and bit is used to cut lookup time and provide
+// more certain timing.
+//
+static inline void write_bit( int v )
+{
+	// IO_REG_TYPE mask=bitmask;
+	//	volatile IO_REG_TYPE *reg IO_REG_ASM = baseReg;
+
+	GPIO_OUTPUT_SET( gpioPin, 0 );
+	if( v ) {
+		// noInterrupts();
+		//	DIRECT_WRITE_LOW(reg, mask);
+		//	DIRECT_MODE_OUTPUT(reg, mask);	// drive output low
+		os_delay_us(10);
+		GPIO_OUTPUT_SET( gpioPin, 1 );
+		// DIRECT_WRITE_HIGH(reg, mask);	// drive output high
+		// interrupts();
+		os_delay_us(55);
+	} else {
+		// noInterrupts();
+		//	DIRECT_WRITE_LOW(reg, mask);
+		//	DIRECT_MODE_OUTPUT(reg, mask);	// drive output low
+		os_delay_us(65);
+		GPIO_OUTPUT_SET( gpioPin, 1 );
+		//	DIRECT_WRITE_HIGH(reg, mask);	// drive output high
+		//		interrupts();
+		os_delay_us(5);
+	}
+}
+
+//
+// Read a bit. Port and bit is used to cut lookup time and provide
+// more certain timing.
+//
+static inline int read_bit(void)
+{
+	//IO_REG_TYPE mask=bitmask;
+	//volatile IO_REG_TYPE *reg IO_REG_ASM = baseReg;
+	int r;
+
+	// noInterrupts();
+	GPIO_OUTPUT_SET( gpioPin, 0 );
+	// DIRECT_MODE_OUTPUT(reg, mask);
+	// DIRECT_WRITE_LOW(reg, mask);
+	os_delay_us(3);
+	GPIO_DIS_OUTPUT( gpioPin );
+	// DIRECT_MODE_INPUT(reg, mask);	// let pin float, pull up will raise
+	os_delay_us(10);
+	// r = DIRECT_READ(reg, mask);
+	r = GPIO_INPUT_GET( gpioPin );
+	// interrupts();
+	os_delay_us(53);
+
+	return r;
+}
+
+//
+// Do a ROM select
+//
+static void select(const uint8_t *rom)
+{
+	uint8_t i;
+
+	write(DS1820_MATCHROM, 0);           // Choose ROM
+
+	for (i = 0; i < 8; i++) write(rom[i], 0);
+}
+
+//
+// Read a byte
+//
+static uint8_t read() {
+	uint8_t bitMask;
+	uint8_t r = 0;
+
+	for (bitMask = 0x01; bitMask; bitMask <<= 1) {
+		if ( read_bit()) r |= bitMask;
+	}
+	return r;
+}
+
+//
+// Compute a Dallas Semiconductor 8 bit CRC directly.
+// this is much slower, but much smaller, than the lookup table.
+//
+static uint8_t crc8(const uint8_t *addr, uint8_t len)
+{
+	uint8_t crc = 0;
+
+	while (len--) {
+		uint8_t inbyte = *addr++;
+		uint8_t i;
+		for (i = 8; i; i--) {
+			uint8_t mix = (crc ^ inbyte) & 0x01;
+			crc >>= 1;
+			if (mix) crc ^= 0x8C;
+			inbyte >>= 1;
+		}
+	}
+	return crc;
+}
+
+/*CONSOLE_CMD(ds18b20, 2, 3,
+	    do_ds18b20, NULL, NULL,
+	    "Read temperature from DS18B20 chip."
+	    HELPSTR_NEWLINE "ds18b20 <gpio> [all]"
+	);
+*/

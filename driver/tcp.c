@@ -6,6 +6,7 @@
 #include "gpio.h"
 #include "user_interface.h"
 #include "espconn.h"
+#include "tcp.h"
 
 #include "user_config.h"
 #include "user_gpio.h"
