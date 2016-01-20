@@ -5,7 +5,6 @@
 #include "gpio.h"
 #include "user_interface.h"
 #include "espconn.h"
-#include "ds18b20.h"
 #include "tcp.h"
 
 // custom headers
@@ -13,12 +12,7 @@
 #include "user_gpio.h"
 
 
-void read_temps(){
-  const char * const args[] ={
-    "2","2","all"
-  };
-  do_ds18b20(3,args);
-}
+
 
 #define user_procTaskPrio        0
 #define user_procTaskQueueLen    1
@@ -98,8 +92,6 @@ void get_wifi_status(void){
 void some_timerfunc(void *arg)
 {
   get_wifi_status();
-
-  read_temps();
 
   if(blink.red){
     if(GPIO_INPUT_GET(GPIO_RED)){

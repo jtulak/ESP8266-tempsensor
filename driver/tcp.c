@@ -8,6 +8,8 @@
 #include "espconn.h"
 #include "tcp.h"
 
+
+#include "ds18b20.h"
 #include "user_config.h"
 #include "user_gpio.h"
 
@@ -27,11 +29,22 @@ shell_tcp_recvcb(void *arg, char *pusrdata, unsigned short length)
 {
     struct espconn *pespconn = (struct espconn *) arg;
 
-
-		if(os_strcmp(pusrdata, "relay-on\r\n")==0){
+    if(os_strcmp(pusrdata, "relay-on\r\n")==0){
 			my_gpio_output_set(GPIO_RELAY, 1);
+      os_printf("set relay on");
 		}else if(os_strcmp(pusrdata, "relay-off\r\n")==0){
 			my_gpio_output_set(GPIO_RELAY, 0);
+      os_printf("set relay off");
+		}else if(os_strcmp(pusrdata, "temperature\r\n")==0){
+      char temps[5][DS_REPLY_LENGTH];
+      read_all_temps(temps);
+      int i;
+      for (i=0; i<DS_MAX_PROBES; i++){
+        if (os_strlen(temps[i]) == 0)
+          continue;
+        espconn_sent(pespconn, (uint8*)temps[i], os_strlen(temps[i]));
+        espconn_sent(pespconn, (uint8*)"\r\n", os_strlen("\r\n"));
+      }
 		}
 
     os_printf(">'%s' ", pusrdata);

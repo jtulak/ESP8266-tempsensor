@@ -17,10 +17,16 @@
 #define DS18S20		0x10
 #define DS18B20 	0x28
 
+// length of the string reply
+#define DS_REPLY_LENGTH 23
+// maximum number of simultanous probes
+#define DS_MAX_PROBES 5
 
 /*
  * static function prototypes
  */
-int do_ds18b20(int argc, const char* const* argv);
+int do_ds18b20(int argc, const char* const* argv, char  output[DS_MAX_PROBES][DS_REPLY_LENGTH]);
+
+void read_all_temps(char output[DS_MAX_PROBES][DS_REPLY_LENGTH]);
 
 #endif

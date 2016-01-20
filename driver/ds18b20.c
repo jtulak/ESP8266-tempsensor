@@ -49,11 +49,17 @@ static uint8_t reset(void);
 static uint8_t read();
 static uint8_t crc8(const uint8_t *addr, uint8_t len);
 
+void read_all_temps(char output[DS_MAX_PROBES][DS_REPLY_LENGTH]){
+  const char * const args[] ={
+    "2","2","all"
+  };
+  do_ds18b20(3,args, output);
+}
 
 /*
  * Parameter: <gpio>
  */
-int do_ds18b20(int argc, const char* const* argv)
+int do_ds18b20(int argc, const char* const* argv, char output[DS_MAX_PROBES][DS_REPLY_LENGTH])
 {
 	const char *tmp = argv[1];
 	int gpio; // = skip_atoi(&tmp);
@@ -82,9 +88,10 @@ int do_ds18b20(int argc, const char* const* argv)
 	//750ms 1x, 375ms 0.5x, 188ms 0.25x, 94ms 0.12x
 	os_delay_us( 750*1000 );
 	//wdt_feed();
-	
+
 
 	reset_search();
+	int index=0;
 	do{
 		r = ds_search( addr );
 		if( r )
@@ -152,6 +159,15 @@ int do_ds18b20(int argc, const char* const* argv)
 			os_printf( "%02x%02x%02x%02x%02x%02x%02x%02x %c%d.%02d\n",
 				addr[0], addr[1], addr[2], addr[3], addr[4], addr[5], addr[6], addr[7],
 				tSign, tVal, tFract);
+
+			if (index < DS_MAX_PROBES){
+				os_sprintf(output[index], "%02x%02x%02x%02x%02x%02x%02x%02x %c%d.%02d\n",
+					addr[0], addr[1], addr[2], addr[3], addr[4], addr[5], addr[6], addr[7],
+					tSign, tVal, tFract);
+				index++;
+			}else{
+				os_printf("Limit for probes is %d, but there is more probes than that!\r\nEdit DS_MAX_PROBES.\r\n", DS_MAX_PROBES);
+			}
 		}else{
 			os_printf( "Temperature: %c%d.%02d °C\n",
 				tSign, tVal, tFract);
