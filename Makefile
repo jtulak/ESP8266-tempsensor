@@ -11,7 +11,8 @@ SDK_BASE	?= /home/ubuntu/sdk/
 
 #Esptool.py path and port
 ESPTOOL		?= esptool.py
-ESPPORT		?= /dev/tty.wchusbserial1420
+#ESPPORT		?= /dev/tty.wchusbserial14220
+ESPPORT		?= /dev/tty.usbserial
 
 # name for the target project
 TARGET		= hello-world

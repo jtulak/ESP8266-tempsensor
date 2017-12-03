@@ -17,6 +17,9 @@
 #include "user_config.h"
 #include "user_gpio.h"
 
+#include "user_sleep.h"
+
+
 LOCAL uint16_t server_timeover = 60; // 60 sec
 LOCAL struct espconn masterconn;
 
@@ -73,6 +76,10 @@ char * get_temperatures_string(){
   // for every probe, join the strings
   for (i=0; i<probes_cnt; i++){
     os_sprintf(output,"%s%s\n",output,temps[i]);
+  }
+
+  if(probes_cnt == 0){
+    os_sprintf(output,"No probe connected.\n");
   }
   return output;
 }

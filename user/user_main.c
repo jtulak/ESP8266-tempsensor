@@ -10,8 +10,7 @@
 // custom headers
 #include "user_config.h"
 #include "user_gpio.h"
-
-
+#include "user_sleep.h"
 
 
 #define user_procTaskPrio        0
@@ -36,6 +35,7 @@ void print_ip(char *desc, uint32 addr)
     os_printf("\n\r");
 }
 
+
 struct s_blink {
   uint8 red;
   uint8 green;
@@ -45,7 +45,7 @@ struct s_blink {
 
 struct s_blink blink = {1,0,0,0};
 
-void get_wifi_status(void){
+uint8 get_wifi_status(void){
   static uint8 last_con_status;
   struct ip_info ipinfo;
   uint8 wifi_status;
@@ -80,18 +80,28 @@ void get_wifi_status(void){
         print_ip("IP Address: ", ipinfo.ip.addr);
         print_ip("Netmask   : ", ipinfo.netmask.addr);
         print_ip("Gateway   : ", ipinfo.gw.addr);
+
         shell_init();
+        sleep_init();
+        //while(1) os_delay_us(300*1000);
+
         break;
     }
+    last_con_status = wifi_status;
   }
-  last_con_status = wifi_status;
+  return last_con_status;
 }
 
 
 
 void some_timerfunc(void *arg)
 {
-  get_wifi_status();
+  if (get_wifi_status() == STATION_GOT_IP){
+    //sleep_init();
+    sleep_wakeup();
+  }
+  //sleep_attempt();
+  //sleep_init();
 
   if(blink.red){
     if(GPIO_INPUT_GET(GPIO_RED)){
@@ -150,7 +160,8 @@ user_init()
   my_gpio_init();
 
   //Set station mode
-  wifi_set_opmode( 0x1 );
+  wifi_set_opmode(STATION_MODE);
+  wifi_set_sleep_type(LIGHT_SLEEP_T);
 
   //Set ap settings
   os_memcpy(&stationConf.ssid, ssid, 32);
